@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Root: Treasurer -->
+    <menuitem id="menu_elkstreasurer_root"
+              name="Treasurer"
+              sequence="58"
+              web_icon="elkstreasurer,static/description/icon.png"
+              groups="group_elkstreasurer_user"/>
+
+    <menuitem id="menu_elkstreasurer_refunds"
+              name="Refund Requests"
+              parent="menu_elkstreasurer_root"
+              action="action_refund_requests"
+              sequence="10"/>
+
+    <menuitem id="menu_elkstreasurer_pending"
+              name="Pending Approval"
+              parent="menu_elkstreasurer_root"
+              action="action_refund_requests_pending"
+              sequence="20"
+              groups="group_elkstreasurer_manager"/>
+</odoo>

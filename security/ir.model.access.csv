@@ -1,0 +1,3 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_refund_request_user,elks.refund.request.user,model_elks_refund_request,group_elkstreasurer_user,1,1,1,0
+access_refund_request_manager,elks.refund.request.manager,model_elks_refund_request,group_elkstreasurer_manager,1,1,1,1

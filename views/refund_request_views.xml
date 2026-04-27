@@ -1,0 +1,229 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- Sequence for refund request numbers -->
+    <record id="seq_refund_request" model="ir.sequence">
+        <field name="name">Elks Refund Request</field>
+        <field name="code">elks.refund.request</field>
+        <field name="prefix">REF-%(year)s-</field>
+        <field name="padding">4</field>
+    </record>
+
+    <!-- ============================================================
+         Form View
+         ============================================================ -->
+    <record id="view_refund_request_form" model="ir.ui.view">
+        <field name="name">elks.refund.request.form</field>
+        <field name="model">elks.refund.request</field>
+        <field name="arch" type="xml">
+            <form string="Refund Request">
+                <header>
+                    <field name="state" widget="statusbar"
+                           statusbar_visible="draft,board,floor,approved,posted"/>
+
+                    <!-- Draft → Board -->
+                    <button name="action_submit_to_board" type="object"
+                            string="Submit to Board"
+                            class="btn-primary"
+                            invisible="state != 'draft'"/>
+
+                    <!-- Board actions -->
+                    <button name="action_board_approve" type="object"
+                            string="Board Approve"
+                            class="btn-primary"
+                            invisible="state != 'board'"
+                            groups="elkstreasurer.group_elkstreasurer_manager"/>
+                    <button name="action_board_reject" type="object"
+                            string="Board Reject"
+                            class="btn-danger"
+                            invisible="state != 'board'"
+                            groups="elkstreasurer.group_elkstreasurer_manager"/>
+
+                    <!-- Floor actions -->
+                    <button name="action_floor_approve" type="object"
+                            string="Floor Approve"
+                            class="btn-primary"
+                            invisible="state != 'floor'"
+                            groups="elkstreasurer.group_elkstreasurer_manager"/>
+                    <button name="action_floor_reject" type="object"
+                            string="Floor Reject"
+                            class="btn-danger"
+                            invisible="state != 'floor'"
+                            groups="elkstreasurer.group_elkstreasurer_manager"/>
+
+                    <!-- Post (create journal entry) -->
+                    <button name="action_post" type="object"
+                            string="Post Refund"
+                            class="btn-primary"
+                            invisible="state != 'approved'"
+                            groups="elkstreasurer.group_elkstreasurer_manager"/>
+
+                    <!-- Reset rejected → draft -->
+                    <button name="action_reset_to_draft" type="object"
+                            string="Reset to Draft"
+                            invisible="state != 'rejected'"/>
+
+                    <!-- Print slip -->
+                    <button name="action_print_slip" type="object"
+                            string="Preview Refund Slip"
+                            icon="fa-eye"
+                            invisible="state not in ('approved', 'posted')"/>
+                    <button name="action_download_slip_pdf" type="object"
+                            string="Download Refund PDF"
+                            icon="fa-download"
+                            invisible="state not in ('approved', 'posted')"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1>
+                            <field name="name" readonly="1"/>
+                        </h1>
+                    </div>
+                    <group>
+                        <group string="Refund Details">
+                            <field name="payee_id"
+                                   readonly="state != 'draft'"
+                                   options="{'no_create': False}"/>
+                            <field name="amount"
+                                   readonly="state != 'draft'"/>
+                            <field name="currency_id" invisible="1"/>
+                            <field name="request_date"
+                                   readonly="state != 'draft'"/>
+                            <field name="requested_by"
+                                   readonly="state != 'draft'"/>
+                        </group>
+                        <group string="Accounting">
+                            <field name="elks_account_id"
+                                   readonly="state != 'draft'"
+                                   options="{'no_create': True}"/>
+                            <field name="elks_department_id" readonly="1"/>
+                            <field name="payment_account_id"
+                                   readonly="state in ('posted',)"
+                                   required="state == 'approved'"
+                                   options="{'no_create': True}"/>
+                            <field name="journal_entry_id" readonly="1"
+                                   invisible="not journal_entry_id"/>
+                        </group>
+                    </group>
+                    <group>
+                        <field name="reason"
+                               readonly="state != 'draft'"
+                               placeholder="Describe the reason for this refund..."/>
+                    </group>
+
+                    <!-- Approval details (visible once approved) -->
+                    <group string="Approval History"
+                           invisible="state in ('draft', 'board')">
+                        <group>
+                            <field name="board_approved_by" readonly="1"/>
+                            <field name="board_approved_on" readonly="1"/>
+                        </group>
+                        <group>
+                            <field name="floor_approved_by" readonly="1"
+                                   invisible="state in ('floor',) and not floor_approved_by"/>
+                            <field name="floor_approved_on" readonly="1"
+                                   invisible="state in ('floor',) and not floor_approved_on"/>
+                        </group>
+                    </group>
+
+                    <notebook>
+                        <page string="Notes" name="notes">
+                            <field name="notes"
+                                   placeholder="Internal notes..."/>
+                        </page>
+                    </notebook>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <!-- ============================================================
+         List View
+         ============================================================ -->
+    <record id="view_refund_request_tree" model="ir.ui.view">
+        <field name="name">elks.refund.request.tree</field>
+        <field name="model">elks.refund.request</field>
+        <field name="arch" type="xml">
+            <list string="Refund Requests"
+                  decoration-warning="state == 'board'"
+                  decoration-info="state == 'floor'"
+                  decoration-success="state in ('approved', 'posted')"
+                  decoration-danger="state == 'rejected'">
+                <field name="name"/>
+                <field name="request_date"/>
+                <field name="payee_id"/>
+                <field name="reason" optional="show"/>
+                <field name="amount" sum="Total"/>
+                <field name="elks_account_id" optional="show"/>
+                <field name="payment_account_id" optional="hide"/>
+                <field name="requested_by" optional="hide"/>
+                <field name="state" widget="badge"
+                       decoration-warning="state == 'board'"
+                       decoration-info="state == 'floor'"
+                       decoration-success="state in ('approved', 'posted')"
+                       decoration-danger="state == 'rejected'"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- ============================================================
+         Search View
+         ============================================================ -->
+    <record id="view_refund_request_search" model="ir.ui.view">
+        <field name="name">elks.refund.request.search</field>
+        <field name="model">elks.refund.request</field>
+        <field name="arch" type="xml">
+            <search string="Refund Requests">
+                <field name="name"/>
+                <field name="payee_id"/>
+                <field name="reason"/>
+                <field name="elks_account_id"/>
+                <separator/>
+                <filter name="filter_draft" string="Draft"
+                        domain="[('state', '=', 'draft')]"/>
+                <filter name="filter_board" string="Board Review"
+                        domain="[('state', '=', 'board')]"/>
+                <filter name="filter_floor" string="Floor Vote"
+                        domain="[('state', '=', 'floor')]"/>
+                <filter name="filter_approved" string="Approved"
+                        domain="[('state', '=', 'approved')]"/>
+                <filter name="filter_posted" string="Posted"
+                        domain="[('state', '=', 'posted')]"/>
+                <filter name="filter_rejected" string="Rejected"
+                        domain="[('state', '=', 'rejected')]"/>
+                <separator/>
+                <filter name="filter_pending_approval"
+                        string="Pending Approval"
+                        domain="[('state', 'in', ['board', 'floor'])]"/>
+                <group>
+                    <filter name="group_state" string="Status"
+                            context="{'group_by': 'state'}"/>
+                    <filter name="group_payee" string="Payee"
+                            context="{'group_by': 'payee_id'}"/>
+                    <filter name="group_account" string="GL Account"
+                            context="{'group_by': 'elks_account_id'}"/>
+                    <filter name="group_month" string="Month"
+                            context="{'group_by': 'request_date:month'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <!-- ============================================================
+         Actions
+         ============================================================ -->
+    <record id="action_refund_requests" model="ir.actions.act_window">
+        <field name="name">Refund Requests</field>
+        <field name="res_model">elks.refund.request</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <record id="action_refund_requests_pending" model="ir.actions.act_window">
+        <field name="name">Pending Approval</field>
+        <field name="res_model">elks.refund.request</field>
+        <field name="view_mode">list,form</field>
+        <field name="domain">[('state', 'in', ['board', 'floor'])]</field>
+    </record>
+
+</odoo>
