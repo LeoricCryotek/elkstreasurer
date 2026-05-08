@@ -1,22 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
 
-    <!-- Sequence for refund request numbers -->
-    <record id="seq_refund_request" model="ir.sequence">
-        <field name="name">Elks Refund Request</field>
-        <field name="code">elks.refund.request</field>
-        <field name="prefix">REF-%(year)s-</field>
+    <!-- Sequence for voucher numbers -->
+    <record id="seq_voucher" model="ir.sequence">
+        <field name="name">Elks Payment Voucher</field>
+        <field name="code">elks.voucher</field>
+        <field name="prefix">VCH-%(year)s-</field>
         <field name="padding">4</field>
     </record>
 
     <!-- ============================================================
          Form View
          ============================================================ -->
-    <record id="view_refund_request_form" model="ir.ui.view">
-        <field name="name">elks.refund.request.form</field>
-        <field name="model">elks.refund.request</field>
+    <record id="view_voucher_form" model="ir.ui.view">
+        <field name="name">elks.voucher.form</field>
+        <field name="model">elks.voucher</field>
         <field name="arch" type="xml">
-            <form string="Refund Request">
+            <form string="Payment Voucher">
                 <header>
                     <field name="state" widget="statusbar"
                            statusbar_visible="draft,board,floor,approved,posted"/>
@@ -53,7 +53,7 @@
 
                     <!-- Post (create journal entry) -->
                     <button name="action_post" type="object"
-                            string="Post Refund"
+                            string="Post Voucher"
                             class="btn-primary"
                             invisible="state != 'approved'"
                             groups="elkstreasurer.group_elkstreasurer_manager"/>
@@ -63,13 +63,13 @@
                             string="Reset to Draft"
                             invisible="state != 'rejected'"/>
 
-                    <!-- Print slip -->
-                    <button name="action_print_slip" type="object"
-                            string="Preview Refund Slip"
+                    <!-- Print voucher -->
+                    <button name="action_print_voucher" type="object"
+                            string="Preview Voucher"
                             icon="fa-eye"
                             invisible="state not in ('approved', 'posted')"/>
-                    <button name="action_download_slip_pdf" type="object"
-                            string="Download Refund PDF"
+                    <button name="action_download_voucher_pdf" type="object"
+                            string="Download Voucher PDF"
                             icon="fa-download"
                             invisible="state not in ('approved', 'posted')"/>
                 </header>
@@ -80,14 +80,18 @@
                         </h1>
                     </div>
                     <group>
-                        <group string="Refund Details">
+                        <group string="Voucher Details">
                             <field name="payee_id"
                                    readonly="state != 'draft'"
                                    options="{'no_create': False}"/>
+                            <field name="voucher_type"
+                                   readonly="state != 'draft'"/>
                             <field name="amount"
                                    readonly="state != 'draft'"/>
                             <field name="currency_id" invisible="1"/>
                             <field name="request_date"
+                                   readonly="state != 'draft'"/>
+                            <field name="date_needed"
                                    readonly="state != 'draft'"/>
                             <field name="requested_by"
                                    readonly="state != 'draft'"/>
@@ -101,6 +105,8 @@
                                    readonly="state in ('posted',)"
                                    required="state == 'approved'"
                                    options="{'no_create': True}"/>
+                            <field name="check_number"
+                                   readonly="state == 'posted'"/>
                             <field name="budget_line_id" readonly="1"
                                    invisible="not budget_line_id"/>
                             <field name="budget_available" readonly="1"
@@ -111,7 +117,7 @@
                                  class="alert alert-warning mb-0 mt-2"
                                  role="alert">
                                 <strong>Over Budget:</strong>
-                                This refund exceeds the available budget for
+                                This voucher exceeds the available budget for
                                 the selected GL account. A budget transfer may
                                 be needed before approval.
                             </div>
@@ -120,12 +126,12 @@
                         </group>
                     </group>
                     <group>
-                        <field name="reason"
+                        <field name="memo"
                                readonly="state != 'draft'"
-                               placeholder="Describe the reason for this refund..."/>
+                               placeholder="What is this payment for? (prints on the voucher)"/>
                     </group>
 
-                    <!-- Approval details (visible once approved) -->
+                    <!-- Approval details -->
                     <group string="Approval History"
                            invisible="state in ('draft', 'board')">
                         <group>
@@ -155,11 +161,11 @@
     <!-- ============================================================
          List View
          ============================================================ -->
-    <record id="view_refund_request_tree" model="ir.ui.view">
-        <field name="name">elks.refund.request.tree</field>
-        <field name="model">elks.refund.request</field>
+    <record id="view_voucher_tree" model="ir.ui.view">
+        <field name="name">elks.voucher.tree</field>
+        <field name="model">elks.voucher</field>
         <field name="arch" type="xml">
-            <list string="Refund Requests"
+            <list string="Payment Vouchers"
                   decoration-warning="state == 'board'"
                   decoration-info="state == 'floor'"
                   decoration-success="state in ('approved', 'posted')"
@@ -167,9 +173,11 @@
                 <field name="name"/>
                 <field name="request_date"/>
                 <field name="payee_id"/>
-                <field name="reason" optional="show"/>
+                <field name="voucher_type"/>
+                <field name="memo" optional="show"/>
                 <field name="amount" sum="Total"/>
                 <field name="elks_account_id" optional="show"/>
+                <field name="check_number" optional="show"/>
                 <field name="payment_account_id" optional="hide"/>
                 <field name="requested_by" optional="hide"/>
                 <field name="state" widget="badge"
@@ -184,15 +192,16 @@
     <!-- ============================================================
          Search View
          ============================================================ -->
-    <record id="view_refund_request_search" model="ir.ui.view">
-        <field name="name">elks.refund.request.search</field>
-        <field name="model">elks.refund.request</field>
+    <record id="view_voucher_search" model="ir.ui.view">
+        <field name="name">elks.voucher.search</field>
+        <field name="model">elks.voucher</field>
         <field name="arch" type="xml">
-            <search string="Refund Requests">
+            <search string="Payment Vouchers">
                 <field name="name"/>
                 <field name="payee_id"/>
-                <field name="reason"/>
+                <field name="memo"/>
                 <field name="elks_account_id"/>
+                <field name="check_number"/>
                 <separator/>
                 <filter name="filter_draft" string="Draft"
                         domain="[('state', '=', 'draft')]"/>
@@ -215,6 +224,8 @@
                             context="{'group_by': 'state'}"/>
                     <filter name="group_payee" string="Payee"
                             context="{'group_by': 'payee_id'}"/>
+                    <filter name="group_type" string="Purpose"
+                            context="{'group_by': 'voucher_type'}"/>
                     <filter name="group_account" string="GL Account"
                             context="{'group_by': 'elks_account_id'}"/>
                     <filter name="group_month" string="Month"
@@ -227,15 +238,15 @@
     <!-- ============================================================
          Actions
          ============================================================ -->
-    <record id="action_refund_requests" model="ir.actions.act_window">
-        <field name="name">Refund Requests</field>
-        <field name="res_model">elks.refund.request</field>
+    <record id="action_vouchers" model="ir.actions.act_window">
+        <field name="name">Payment Vouchers</field>
+        <field name="res_model">elks.voucher</field>
         <field name="view_mode">list,form</field>
     </record>
 
-    <record id="action_refund_requests_pending" model="ir.actions.act_window">
-        <field name="name">Pending Approval</field>
-        <field name="res_model">elks.refund.request</field>
+    <record id="action_vouchers_pending" model="ir.actions.act_window">
+        <field name="name">Pending Vouchers</field>
+        <field name="res_model">elks.voucher</field>
         <field name="view_mode">list,form</field>
         <field name="domain">[('state', 'in', ['board', 'floor'])]</field>
     </record>

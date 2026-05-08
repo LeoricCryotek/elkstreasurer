@@ -1,8 +1,13 @@
 # -*- coding: utf-8 -*-
-"""Refund / Disbursement Request with Board → Floor approval workflow.
+"""Payment Voucher — authorizes a check or expense payment.
 
-Follows the same approval pattern as elkspurchase:
-Draft → Board → Floor → Approved → Posted (journal entry created).
+Used when the lodge wants to issue a check for a sponsorship, donation,
+expense reimbursement, or any disbursement that is NOT a refund.  The
+printable Voucher tells the bookkeeper exactly who to pay, how much,
+and which GL account to charge.
+
+Workflow mirrors RefundRequest:
+  Draft → Board Review → Floor Vote → Approved → Posted (JE created).
 """
 import datetime
 import logging
@@ -12,7 +17,7 @@ from odoo.exceptions import UserError
 
 _logger = logging.getLogger(__name__)
 
-REFUND_STATES = [
+VOUCHER_STATES = [
     ('draft', 'Draft'),
     ('board', 'Board Review'),
     ('floor', 'Floor Vote'),
@@ -21,10 +26,20 @@ REFUND_STATES = [
     ('rejected', 'Rejected'),
 ]
 
+VOUCHER_TYPES = [
+    ('sponsorship', 'Sponsorship'),
+    ('donation', 'Donation'),
+    ('expense', 'Expense / Reimbursement'),
+    ('dues', 'Dues / Assessments'),
+    ('utility', 'Utility / Service'),
+    ('supply', 'Supplies'),
+    ('other', 'Other'),
+]
 
-class ElksRefundRequest(models.Model):
-    _name = "elks.refund.request"
-    _description = "Elks Refund / Disbursement Request"
+
+class ElksVoucher(models.Model):
+    _name = "elks.voucher"
+    _description = "Elks Payment Voucher"
     _inherit = ["mail.thread", "mail.activity.mixin"]
     _order = "create_date desc"
     _rec_name = "display_name"
@@ -33,27 +48,33 @@ class ElksRefundRequest(models.Model):
     # Core fields
     # ------------------------------------------------------------------
     name = fields.Char(
-        "Reference", readonly=True, copy=False, default="New",
-        help="Auto-assigned sequence number.",
+        "Voucher #", readonly=True, copy=False, default="New",
+        help="Auto-assigned sequence number (VCH-YYYY-0001).",
     )
     display_name = fields.Char(compute="_compute_display_name", store=True)
 
     state = fields.Selection(
-        REFUND_STATES, string="Status", default='draft',
+        VOUCHER_STATES, string="Status", default='draft',
         tracking=True, copy=False, index=True,
     )
 
     payee_id = fields.Many2one(
-        "res.partner", string="Payee", required=True,
+        "res.partner", string="Pay To", required=True,
         tracking=True,
-        help="Person or vendor receiving the refund.",
+        help="Person or organization receiving the payment.",
     )
-    reason = fields.Text(
-        "Reason / Description", required=True, tracking=True,
-        help="Why the refund is being issued.",
+    voucher_type = fields.Selection(
+        VOUCHER_TYPES, string="Purpose", default='other',
+        required=True, tracking=True,
+        help="Categorize this voucher for reporting.",
+    )
+    memo = fields.Text(
+        "Memo / Description", required=True, tracking=True,
+        help="What the payment is for — this prints on the voucher "
+             "and is used as the journal entry memo.",
     )
     amount = fields.Monetary(
-        "Refund Amount", required=True, tracking=True,
+        "Amount", required=True, tracking=True,
         currency_field='currency_id',
     )
     currency_id = fields.Many2one(
@@ -68,6 +89,11 @@ class ElksRefundRequest(models.Model):
     requested_by = fields.Many2one(
         "res.users", string="Requested By",
         default=lambda self: self.env.user,
+        tracking=True,
+    )
+    date_needed = fields.Date(
+        "Date Needed",
+        help="When the check needs to be ready by.",
         tracking=True,
     )
 
@@ -85,11 +111,16 @@ class ElksRefundRequest(models.Model):
 
     # Payment source account from Elks COA (Cash or Bank)
     payment_account_id = fields.Many2one(
-        "elks.account", string="Payment Account",
+        "elks.account", string="Pay From Account",
         domain="[('account_type', 'in', ['bank', 'asset'])]",
         tracking=True,
-        help="Elks COA cash or bank account to pay the refund from "
+        help="Elks COA cash or bank account to pay from "
              "(e.g. 10100 Cash, 10200 Checking).",
+    )
+
+    check_number = fields.Char(
+        "Check Number", tracking=True,
+        help="Filled in by the bookkeeper once the check is written.",
     )
 
     # Budget availability
@@ -125,7 +156,7 @@ class ElksRefundRequest(models.Model):
     journal_entry_id = fields.Many2one(
         "elks.journal.entry", string="Journal Entry",
         readonly=True, copy=False,
-        help="The Elks FRS journal entry created when the refund is posted.",
+        help="The Elks FRS journal entry created when the voucher is posted.",
     )
 
     notes = fields.Html("Internal Notes")
@@ -194,17 +225,17 @@ class ElksRefundRequest(models.Model):
 
     @api.onchange("elks_account_id", "amount")
     def _onchange_check_budget(self):
-        """Warn user if this refund exceeds the available budget."""
+        """Warn user if this voucher exceeds the available budget."""
         if self.over_budget and self.budget_line_id:
             return {
                 'warning': {
                     'title': _("Over Budget"),
                     'message': _(
-                        "This refund ($%(amount)s) exceeds the available "
+                        "This voucher ($%(amount)s) exceeds the available "
                         "budget for %(account)s.\n\n"
                         "Budget available: $%(available)s\n"
                         "Shortfall: $%(shortfall)s\n\n"
-                        "You can still submit this refund, but a budget "
+                        "You can still submit this voucher, but a budget "
                         "transfer may be needed before approval.",
                         amount=f"{self.amount:,.2f}",
                         account=self.elks_account_id.display_name,
@@ -222,7 +253,7 @@ class ElksRefundRequest(models.Model):
         for vals in vals_list:
             if vals.get('name', 'New') == 'New':
                 vals['name'] = self.env['ir.sequence'].next_by_code(
-                    'elks.refund.request'
+                    'elks.voucher'
                 ) or 'New'
         return super().create(vals_list)
 
@@ -230,12 +261,12 @@ class ElksRefundRequest(models.Model):
     # Workflow actions
     # ------------------------------------------------------------------
     def action_submit_to_board(self):
-        """Submit the refund request for Board review."""
+        """Submit the voucher for Board review."""
         for rec in self:
             if rec.state != 'draft':
-                raise UserError(_("Only draft requests can be submitted."))
+                raise UserError(_("Only draft vouchers can be submitted."))
             if rec.amount <= 0:
-                raise UserError(_("Refund amount must be greater than zero."))
+                raise UserError(_("Amount must be greater than zero."))
             rec.state = 'board'
             rec.message_post(
                 body=_("Submitted to <b>Board</b> for review by %s.",
@@ -248,7 +279,7 @@ class ElksRefundRequest(models.Model):
         for rec in self:
             if rec.state != 'board':
                 raise UserError(_(
-                    "This request is not in the Board review queue."
+                    "This voucher is not in the Board review queue."
                 ))
             rec.write({
                 'state': 'floor',
@@ -261,11 +292,11 @@ class ElksRefundRequest(models.Model):
             )
 
     def action_board_reject(self):
-        """Board rejects the request."""
+        """Board rejects the voucher."""
         for rec in self:
             if rec.state != 'board':
                 raise UserError(_(
-                    "This request is not in the Board review queue."
+                    "This voucher is not in the Board review queue."
                 ))
             rec.state = 'rejected'
             rec.message_post(
@@ -278,7 +309,7 @@ class ElksRefundRequest(models.Model):
         for rec in self:
             if rec.state != 'floor':
                 raise UserError(_(
-                    "This request is not in the Floor vote queue."
+                    "This voucher is not in the Floor vote queue."
                 ))
             rec.write({
                 'state': 'approved',
@@ -292,11 +323,11 @@ class ElksRefundRequest(models.Model):
             )
 
     def action_floor_reject(self):
-        """Floor rejects the request."""
+        """Floor rejects the voucher."""
         for rec in self:
             if rec.state != 'floor':
                 raise UserError(_(
-                    "This request is not in the Floor vote queue."
+                    "This voucher is not in the Floor vote queue."
                 ))
             rec.state = 'rejected'
             rec.message_post(
@@ -305,15 +336,15 @@ class ElksRefundRequest(models.Model):
             )
 
     def action_post(self):
-        """Post the refund — create the Elks FRS journal entry."""
+        """Post the voucher — create the Elks FRS journal entry."""
         for rec in self:
             if rec.state != 'approved':
                 raise UserError(_(
-                    "Only approved requests can be posted."
+                    "Only approved vouchers can be posted."
                 ))
             if not rec.payment_account_id:
                 raise UserError(_(
-                    "Please select a Payment Account (Cash or Bank) "
+                    "Please select a Pay From Account (Cash or Bank) "
                     "before posting."
                 ))
             rec._create_journal_entry()
@@ -329,11 +360,11 @@ class ElksRefundRequest(models.Model):
             )
 
     def action_reset_to_draft(self):
-        """Reset a rejected request back to draft."""
+        """Reset a rejected voucher back to draft."""
         for rec in self:
             if rec.state != 'rejected':
                 raise UserError(_(
-                    "Only rejected requests can be reset to draft."
+                    "Only rejected vouchers can be reset to draft."
                 ))
             rec.write({
                 'state': 'draft',
@@ -347,18 +378,18 @@ class ElksRefundRequest(models.Model):
                 subtype_xmlid='mail.mt_comment',
             )
 
-    def action_print_slip(self):
-        """Preview the refund slip (HTML)."""
+    def action_print_voucher(self):
+        """Preview the voucher (HTML)."""
         self.ensure_one()
         return self.env.ref(
-            'elkstreasurer.action_report_refund_slip'
+            'elkstreasurer.action_report_voucher'
         ).report_action(self)
 
-    def action_download_slip_pdf(self):
-        """Download the refund slip as PDF."""
+    def action_download_voucher_pdf(self):
+        """Download the voucher as PDF."""
         self.ensure_one()
         return self.env.ref(
-            'elkstreasurer.action_report_refund_slip_pdf'
+            'elkstreasurer.action_report_voucher_pdf'
         ).report_action(self)
 
     # ------------------------------------------------------------------
@@ -369,33 +400,36 @@ class ElksRefundRequest(models.Model):
         self.ensure_one()
         if self.journal_entry_id:
             raise UserError(_(
-                "A journal entry already exists for this refund."
+                "A journal entry already exists for this voucher."
             ))
 
         JE = self.env['elks.journal.entry']
-        reason_short = (self.reason or '')[:80]
+        memo_short = (self.memo or '')[:80]
+        type_label = dict(VOUCHER_TYPES).get(self.voucher_type, '')
 
         entry = JE.create({
             'date': fields.Date.context_today(self),
-            'memo': f"Refund {self.name} — {self.payee_id.name}: {reason_short}",
+            'memo': f"Voucher {self.name} — {self.payee_id.name}"
+                    f" ({type_label}): {memo_short}",
             'line_ids': [
                 (0, 0, {
                     'account_id': self.elks_account_id.id,
                     'debit': self.amount,
                     'credit': 0.0,
-                    'memo': f"Refund: {reason_short}",
+                    'memo': f"{type_label}: {memo_short}",
                 }),
                 (0, 0, {
                     'account_id': self.payment_account_id.id,
                     'debit': 0.0,
                     'credit': self.amount,
-                    'memo': f"Refund {self.name}",
+                    'memo': f"Voucher {self.name}"
+                            f"{' — Check #' + self.check_number if self.check_number else ''}",
                 }),
             ],
         })
         entry.action_post()
         self.journal_entry_id = entry.id
         _logger.info(
-            "Created and posted Elks journal entry %s for refund %s ($%.2f)",
+            "Created and posted Elks journal entry %s for voucher %s ($%.2f)",
             entry.name, self.name, self.amount,
         )

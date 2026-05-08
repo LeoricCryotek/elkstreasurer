@@ -13,10 +13,23 @@
               action="action_refund_requests"
               sequence="10"/>
 
+    <menuitem id="menu_elkstreasurer_vouchers"
+              name="Payment Vouchers"
+              parent="menu_elkstreasurer_root"
+              action="action_vouchers"
+              sequence="15"/>
+
     <menuitem id="menu_elkstreasurer_pending"
-              name="Pending Approval"
+              name="Pending Refunds"
               parent="menu_elkstreasurer_root"
               action="action_refund_requests_pending"
               sequence="20"
+              groups="group_elkstreasurer_manager"/>
+
+    <menuitem id="menu_elkstreasurer_vouchers_pending"
+              name="Pending Vouchers"
+              parent="menu_elkstreasurer_root"
+              action="action_vouchers_pending"
+              sequence="25"
               groups="group_elkstreasurer_manager"/>
 </odoo>
